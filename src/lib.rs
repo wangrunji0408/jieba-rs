@@ -736,29 +736,16 @@ impl Jieba {
         let words = self.cut(sentence, hmm);
         let mut new_words = Vec::with_capacity(words.len());
         for word in words {
-            let char_indices: Vec<usize> = word.char_indices().map(|x| x.0).collect();
-            let char_count = char_indices.len();
+            let char_count = word.chars().count();
             if char_count > 2 {
-                for i in 0..char_count - 1 {
-                    let byte_start = char_indices[i];
-                    let gram2 = if i + 2 < char_count {
-                        &word[byte_start..char_indices[i + 2]]
-                    } else {
-                        &word[byte_start..]
-                    };
+                for gram2 in ngrams(word, 2) {
                     if self.cedar.exact_match_search(gram2).is_some() {
                         new_words.push(gram2);
                     }
                 }
             }
             if char_count > 3 {
-                for i in 0..char_count - 2 {
-                    let byte_start = char_indices[i];
-                    let gram3 = if i + 3 < char_count {
-                        &word[byte_start..char_indices[i + 3]]
-                    } else {
-                        &word[byte_start..]
-                    };
+                for gram3 in ngrams(word, 3) {
                     if self.cedar.exact_match_search(gram3).is_some() {
                         new_words.push(gram3);
                     }
@@ -798,14 +785,7 @@ impl Jieba {
                 for word in words {
                     let width = word.chars().count();
                     if width > 2 {
-                        let char_indices: Vec<usize> = word.char_indices().map(|x| x.0).collect();
-                        for i in 0..width - 1 {
-                            let byte_start = char_indices[i];
-                            let gram2 = if i + 2 < width {
-                                &word[byte_start..char_indices[i + 2]]
-                            } else {
-                                &word[byte_start..]
-                            };
+                        for (i, gram2) in ngrams(word, 2).enumerate() {
                             if self.cedar.exact_match_search(gram2).is_some() {
                                 tokens.push(Token {
                                     word: gram2,
@@ -815,13 +795,7 @@ impl Jieba {
                             }
                         }
                         if width > 3 {
-                            for i in 0..width - 2 {
-                                let byte_start = char_indices[i];
-                                let gram3 = if i + 3 < width {
-                                    &word[byte_start..char_indices[i + 3]]
-                                } else {
-                                    &word[byte_start..]
-                                };
+                            for (i, gram3) in ngrams(word, 3).enumerate() {
                                 if self.cedar.exact_match_search(gram3).is_some() {
                                     tokens.push(Token {
                                         word: gram3,
@@ -881,6 +855,13 @@ impl Jieba {
             })
             .collect()
     }
+}
+
+/// Iterate over n-grams of a string
+fn ngrams(word: &str, n: usize) -> impl Iterator<Item = &str> {
+    word.char_indices()
+        .zip(word.char_indices().chain([(word.len(), '\0')]).skip(n))
+        .map(move |((start, _), (end, _))| unsafe { word.get_unchecked(start..end) })
 }
 
 #[cfg(test)]
@@ -1519,5 +1500,39 @@ mod tests {
         jieba.add_word("田-女士", Some(42), Some("n"));
         let words = jieba.cut("市民田-女士急匆匆", false);
         assert_eq!(words, vec!["市", "民", "田-女士", "急", "匆", "匆"]);
+    }
+
+    #[test]
+    fn test_ngrams() {
+        use super::ngrams;
+
+        // Test 2-grams
+        let result: Vec<&str> = ngrams("hello", 2).collect();
+        assert_eq!(result, &["he", "el", "ll", "lo"]);
+
+        let result: Vec<&str> = ngrams("中国人民", 3).collect();
+        assert_eq!(result, &["中国人", "国人民"]);
+
+        // Test edge cases
+        let result: Vec<&str> = ngrams("a", 2).collect();
+        assert_eq!(result, &[] as &[&str]);
+
+        let result: Vec<&str> = ngrams("ab", 3).collect();
+        assert_eq!(result, &[] as &[&str]);
+
+        let result: Vec<&str> = ngrams("abc", 1).collect();
+        assert_eq!(result, &["a", "b", "c"]);
+
+        // Test empty string
+        let result: Vec<&str> = ngrams("", 2).collect();
+        assert_eq!(result, &[] as &[&str]);
+
+        // Test with Unicode characters (emoji, etc.)
+        let result: Vec<&str> = ngrams("🌟🚀🎉", 2).collect();
+        assert_eq!(result, &["🌟🚀", "🚀🎉"]);
+
+        // Test with mixed characters
+        let result: Vec<&str> = ngrams("a中b", 2).collect();
+        assert_eq!(result, &["a中", "中b"]);
     }
 }
